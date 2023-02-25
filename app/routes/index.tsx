@@ -1,11 +1,15 @@
 import { Form, useActionData, useTransition } from "@remix-run/react";
 import type { ActionArgs } from "@remix-run/server-runtime";
 import { json } from "@remix-run/server-runtime";
-import { generateTranscriptTLDR } from "~/utils/openai.server";
+import { ExclamationCircleIcon } from "@heroicons/react/20/solid";
+import { classNames } from "~/utils/classnames";
+import { generateTextTLDR } from "~/utils/openai.server";
 import {
   validateYoutubeVideoURL,
   getYoutubeVideoTranscript,
-} from "~/utils/youtube.server";
+  getYoutubeVideoInfo,
+} from "~/utils/youtube";
+import { useEffect, useState } from "react";
 
 export async function action({ request }: ActionArgs) {
   const formData = await request.formData();
@@ -14,14 +18,21 @@ export async function action({ request }: ActionArgs) {
     typeof youtubeVideoURL !== "string" ||
     !validateYoutubeVideoURL(youtubeVideoURL)
   ) {
-    return json({ error: "Invalid YouTube URL" }, { status: 400 });
+    return json(
+      { fieldErrors: { youtubeVideoURL: "Invalid YouTube video URL." } },
+      { status: 400 }
+    );
   }
 
   const transcript = await getYoutubeVideoTranscript(youtubeVideoURL);
 
   try {
-    const tldr = await generateTranscriptTLDR(transcript);
-    return json({ tldr });
+    const [{ videoDetails }, tldr] = await Promise.all([
+      getYoutubeVideoInfo(youtubeVideoURL),
+      generateTextTLDR(transcript),
+    ]);
+
+    return json({ tldr, videoTitle: videoDetails.title });
   } catch (e) {
     console.error(e);
     const error = e as any;
@@ -30,13 +41,16 @@ export async function action({ request }: ActionArgs) {
         "This model's maximum context length is"
       )
     ) {
-      return json({ error: "That YouTube video is too long" }, { status: 500 });
+      return json(
+        { formError: "That YouTube video is too long." },
+        { status: 500 }
+      );
     }
 
     return json(
       {
-        error:
-          "Something went wrong generating the TLDR for that YouTube video",
+        formError:
+          "Something went wrong generating the TLDR for that YouTube video.",
       },
       { status: 500 }
     );
@@ -45,25 +59,53 @@ export async function action({ request }: ActionArgs) {
 
 interface ActionData {
   tldr?: string;
-  error?: string;
+  videoTitle?: string;
+  formError?: string;
+  fieldErrors?: {
+    youtubeVideoURL: string;
+  };
 }
 
 export default function Index() {
   const transition = useTransition();
   const actionData = useActionData<ActionData>();
   const isSubmitting = transition.state === "submitting";
+  const [youtubeVideoURLError, setYoutubeVideoURLError] = useState("");
+
+  useEffect(() => {
+    if (actionData?.fieldErrors?.youtubeVideoURL) {
+      setYoutubeVideoURLError(actionData.fieldErrors.youtubeVideoURL);
+    }
+  }, [actionData?.fieldErrors?.youtubeVideoURL]);
+
+  const handleYoutubeVideoURLBlur = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const $input = event.currentTarget;
+    const value = $input.value;
+    if (!value) {
+      // We already have the browser validating for "required" so there's no need
+      // to validate this ourselves.
+      return;
+    }
+
+    const isValid = validateYoutubeVideoURL(value);
+    $input.setCustomValidity(isValid ? "" : "Invalid YouTube video URL.");
+    if ($input.checkValidity()) setYoutubeVideoURLError("");
+    else setYoutubeVideoURLError($input.validationMessage);
+  };
 
   return (
     <div className="h-full bg-white flex flex-col">
       <nav className="w-full max-w-4xl mx-auto py-8 px-4 border-b-2 border-b-gray-200 flex items-end justify-between">
         <a className="font-bold text-4xl text-black" href="/">
-          tldr-video.com
+          TLDR Video
         </a>
 
         <p className="text-4xl">✍️</p>
       </nav>
 
-      <main className="my-auto w-full max-w-2xl mx-auto px-4 flex flex-col items-center">
+      <main className="m-auto py-24 w-full max-w-2xl px-4 flex flex-col items-center">
         <a
           href="https://github.com/gmencz/tldr-video"
           className="inline-flex gap-2 items-center rounded-full border border-gray-300 bg-white px-4 py-2 text-sm font-medium leading-4 text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
@@ -80,40 +122,68 @@ export default function Index() {
           <span>Star on GitHub</span>
         </a>
 
-        <h1 className="mt-8 text-slate-900 text-6xl font-bold text-center">
+        <h1 className="mt-8 text-slate-900 text-4xl md:text-5xl lg:text-6xl font-bold text-center">
           Generate TLDRs for any video in seconds
         </h1>
 
         <Form
           action="/?index"
           method="post"
-          encType="multipart/form-data"
           className="mt-16 flex flex-col w-full max-w-lg"
         >
-          <label
-            htmlFor="youtube-video-url"
-            className="text-black font-semibold mb-4"
-          >
-            Enter the video URL{" "}
-            <span className="text-gray-500">
-              (only YouTube is supported currently)
-            </span>
-            .
-          </label>
+          <div className="w-full">
+            <label
+              htmlFor="youtube-video-url"
+              className="text-black font-semibold"
+            >
+              Enter the video URL{" "}
+              <span className="text-gray-500">
+                (only YouTube is supported currently)
+              </span>
+              .
+            </label>
 
-          <input
-            required
-            type="url"
-            name="youtube-video-url"
-            id="youtube-video-url"
-            placeholder="https://www.youtube.com/watch?v=eBGIQ7ZuuiU"
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black"
-          />
+            <div className="relative mt-4 rounded-md shadow-sm w-full">
+              <input
+                required
+                type="url"
+                name="youtube-video-url"
+                id="youtube-video-url"
+                onBlur={handleYoutubeVideoURLBlur}
+                placeholder="https://www.youtube.com/watch?v=eBGIQ7ZuuiU"
+                aria-invalid={!!youtubeVideoURLError}
+                aria-describedby={
+                  youtubeVideoURLError ? "youtube-video-url-error" : undefined
+                }
+                className={classNames(
+                  "block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black",
+                  youtubeVideoURLError
+                    ? "border-red-300 text-red-900 placeholder-red-300 focus:border-red-500 focus:ring-red-500"
+                    : null
+                )}
+              />
+
+              {youtubeVideoURLError ? (
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                  <ExclamationCircleIcon
+                    className="h-5 w-5 text-red-500"
+                    aria-hidden="true"
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {youtubeVideoURLError ? (
+              <p className="mt-4 text-red-600" id="youtube-video-url-error">
+                {youtubeVideoURLError}
+              </p>
+            ) : null}
+          </div>
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex items-center justify-center gap-2 mt-6 rounded-md bg-black px-3.5 py-2.5 font-semibold text-white shadow-sm hover:bg-opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 mt-6 rounded-md bg-black px-3.5 py-2.5 font-semibold text-white shadow-sm hover:bg-opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isSubmitting ? (
               <svg
@@ -128,7 +198,7 @@ export default function Index() {
                   cy="12"
                   r="10"
                   stroke="currentColor"
-                  stroke-width="4"
+                  strokeWidth="4"
                 ></circle>
                 <path
                   className="opacity-75"
@@ -148,27 +218,32 @@ export default function Index() {
                 className="w-6 h-6"
               >
                 <path
-                  fill-rule="evenodd"
+                  fillRule="evenodd"
                   d="M16.72 7.72a.75.75 0 011.06 0l3.75 3.75a.75.75 0 010 1.06l-3.75 3.75a.75.75 0 11-1.06-1.06l2.47-2.47H3a.75.75 0 010-1.5h16.19l-2.47-2.47a.75.75 0 010-1.06z"
-                  clip-rule="evenodd"
+                  clipRule="evenodd"
                 />
               </svg>
             ) : null}
           </button>
 
-          {actionData?.error ? (
-            <p className="text-red-500 font-medium mt-6">{actionData?.error}</p>
+          {actionData?.formError ? (
+            <p className="text-red-600 font-medium mt-6">
+              {actionData?.formError}
+            </p>
           ) : null}
         </Form>
 
-        {actionData?.tldr ? (
+        {actionData?.tldr && actionData.videoTitle ? (
           <div className="mt-14">
-            <p className=" text-slate-900 text-4xl font-bold text-center">
-              Generated TLDR
+            <p className=" text-slate-900 text-2xl font-bold text-center">
+              Generated TLDR for{" "}
+              <span className="font-semibold">"{actionData.videoTitle}"</span>
             </p>
 
-            <div className="shadow mt-8 bg-white border border-gray-200 rounded-xl px-6 py-4">
-              {actionData.tldr}
+            <div className="shadow mt-8 bg-white border border-gray-200 rounded-xl px-6 py-4 flex flex-col gap-4">
+              {actionData.tldr.split("\n").map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
             </div>
           </div>
         ) : null}
