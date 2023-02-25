@@ -1,4 +1,9 @@
-import { Form, useActionData, useTransition } from "@remix-run/react";
+import {
+  Form,
+  useActionData,
+  useLoaderData,
+  useTransition,
+} from "@remix-run/react";
 import type { ActionArgs } from "@remix-run/server-runtime";
 import { json } from "@remix-run/server-runtime";
 import { ExclamationCircleIcon } from "@heroicons/react/20/solid";
@@ -10,6 +15,15 @@ import {
   getYoutubeVideoInfo,
 } from "~/utils/youtube";
 import { useEffect, useState } from "react";
+import { isOverLimit } from "~/utils/rate-limit.server";
+import { redis } from "~/utils/redis.server";
+
+const countRedisKey = "tldrs-generated-count";
+
+export async function loader() {
+  const count = await redis.get(countRedisKey);
+  return json({ count: count ? Number(count) : 0 });
+}
 
 export async function action({ request }: ActionArgs) {
   const formData = await request.formData();
@@ -24,6 +38,22 @@ export async function action({ request }: ActionArgs) {
     );
   }
 
+  // Max 3 videos per day (24 hours).
+  const tooManyRequests = await isOverLimit(request, {
+    max: 3,
+    windowInSeconds: 24 * 3600,
+    uid: "generate-youtube-video-tldr",
+  });
+
+  if (tooManyRequests) {
+    return json(
+      {
+        formError: `You've reached your daily limit of generations. We only allow 3 generations per day.`,
+      },
+      { status: 429 }
+    );
+  }
+
   const transcript = await getYoutubeVideoTranscript(youtubeVideoURL);
 
   try {
@@ -31,6 +61,8 @@ export async function action({ request }: ActionArgs) {
       getYoutubeVideoInfo(youtubeVideoURL),
       generateTextTLDR(transcript),
     ]);
+
+    await redis.incr(countRedisKey);
 
     return json({ tldr, videoTitle: videoDetails.title });
   } catch (e) {
@@ -66,9 +98,14 @@ interface ActionData {
   };
 }
 
+interface LoaderData {
+  count: number;
+}
+
 export default function Index() {
   const transition = useTransition();
   const actionData = useActionData<ActionData>();
+  const loaderData = useLoaderData<LoaderData>();
   const isSubmitting = transition.state === "submitting";
   const [youtubeVideoURLError, setYoutubeVideoURLError] = useState("");
 
@@ -102,7 +139,7 @@ export default function Index() {
           TLDR Video
         </a>
 
-        <p className="text-4xl">✍️</p>
+        <span className="text-4xl">✍️</span>
       </nav>
 
       <main className="m-auto py-24 w-full max-w-2xl px-4 flex flex-col items-center">
@@ -126,10 +163,16 @@ export default function Index() {
           Generate TLDRs for any video in seconds
         </h1>
 
+        {loaderData.count > 2 ? (
+          <p className="mt-6 text-gray-500">
+            {loaderData.count} TLDRs generated and counting.
+          </p>
+        ) : null}
+
         <Form
           action="/?index"
           method="post"
-          className="mt-16 flex flex-col w-full max-w-lg"
+          className="mt-12 flex flex-col w-full max-w-lg"
         >
           <div className="w-full">
             <label
@@ -174,7 +217,10 @@ export default function Index() {
             </div>
 
             {youtubeVideoURLError ? (
-              <p className="mt-4 text-red-600" id="youtube-video-url-error">
+              <p
+                className="mt-4 text-red-600 font-medium"
+                id="youtube-video-url-error"
+              >
                 {youtubeVideoURLError}
               </p>
             ) : null}

@@ -2,7 +2,7 @@ import { Configuration, OpenAIApi } from "openai";
 import chunkText from "chunk-text";
 
 const { OPENAI_API_KEY } = process.env;
-if (!OPENAI_API_KEY) {
+if (typeof OPENAI_API_KEY !== "string") {
   throw new Error("OPENAI_API_KEY environment variable not set");
 }
 
@@ -15,13 +15,11 @@ const openai = new OpenAIApi(configuration);
 export async function generateTextTLDR(text: string) {
   const maxChunkSize = 5000;
   if (text.length <= maxChunkSize) {
-    console.log(JSON.stringify({ text }, null, 4));
-
-    const prompt = `Write a short TLDR of the following text:\n\n"""\n${text}\n"""\n\nTLDR:\n`;
+    const prompt = `Write a short TLDR of the following text from a video:\n\n"""\n${text}\n"""\n\nTLDR:\n`;
     const response = await openai.createCompletion({
       model: "text-curie-001",
       prompt,
-      temperature: 0,
+      temperature: 0.7,
       max_tokens: 256,
     });
 
@@ -33,11 +31,11 @@ export async function generateTextTLDR(text: string) {
     // 2. Write a short TLDR for each chunk with GPT-3
     const chunksTLDRs = await Promise.all(
       textChunks.map(async (textChunk) => {
-        const prompt = `Write a short TLDR of the following text:\n\n"""\n${textChunk}\n"""\n\nTLDR:\n`;
+        const prompt = `Write a short TLDR of the following text from a video:\n\n"""\n${textChunk}\n"""\n\nTLDR:\n`;
         const response = await openai.createCompletion({
           model: "text-curie-001",
           prompt,
-          temperature: 0,
+          temperature: 0.7,
           max_tokens: 256,
         });
 
@@ -55,7 +53,7 @@ export async function generateTextTLDR(text: string) {
     const response = await openai.createCompletion({
       model: "text-curie-001",
       prompt,
-      temperature: 0,
+      temperature: 0.7,
       max_tokens: 256,
     });
 
