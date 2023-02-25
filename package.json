@@ -9,7 +9,8 @@
     "build:remix": "remix build --sourcemap",
     "build": "npm run build:remix && npm run build:server",
     "start": "cross-env NODE_ENV=production node ./index.js",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "deploy": "fly deploy"
   },
   "dependencies": {
     "@heroicons/react": "^2.0.16",

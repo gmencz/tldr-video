@@ -38,10 +38,10 @@ export async function action({ request }: ActionArgs) {
     );
   }
 
-  // Max 10 generations per month.
+  // Max 3 generations per day.
   const tooManyRequests = await isOverLimit(request, {
-    max: 10,
-    windowInSeconds: 30 * 24 * 3600,
+    max: 3,
+    windowInSeconds: 24 * 3600,
     uid: "generate-youtube-video-tldr",
   });
 
