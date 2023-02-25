@@ -31,6 +31,11 @@ export async function generateTextTLDR(text: string): Promise<string> {
     // 1. Split the large text into smaller chunks that GPT-3 can process
     const textChunks = chunkText(text, maxChunkSize);
 
+    // Free users can do 5 at most.
+    if (textChunks.length > 5) {
+      throw new Error("video_too_large");
+    }
+
     // 2. Write a short TLDR for each chunk with GPT-3
     const chunksTLDRs = await Promise.all(
       textChunks.map(async (textChunk) => {

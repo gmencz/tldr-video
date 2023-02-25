@@ -38,10 +38,10 @@ export async function action({ request }: ActionArgs) {
     );
   }
 
-  // Max 3 videos per day (24 hours).
+  // Max 10 generations per month.
   const tooManyRequests = await isOverLimit(request, {
-    max: 3,
-    windowInSeconds: 24 * 3600,
+    max: 10,
+    windowInSeconds: 30 * 24 * 3600,
     uid: "generate-youtube-video-tldr",
   });
 
@@ -62,6 +62,8 @@ export async function action({ request }: ActionArgs) {
       generateTextTLDR(transcript),
     ]);
 
+    console.log(JSON.stringify(videoDetails, null, 4));
+
     await redis.incr(countRedisKey);
 
     return json({ tldr, videoTitle: videoDetails.title });
@@ -71,10 +73,14 @@ export async function action({ request }: ActionArgs) {
     if (
       error?.response?.data?.error?.message?.startsWith(
         "This model's maximum context length is"
-      )
+      ) ||
+      error.message === "video_too_large"
     ) {
       return json(
-        { formError: "That YouTube video is too long." },
+        {
+          formError:
+            "That YouTube video is too long. We are working on allowing videos of any length as a paid feature in the future.",
+        },
         { status: 500 }
       );
     }
