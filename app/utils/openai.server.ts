@@ -50,13 +50,7 @@ export async function generateTextTLDR(text: string): Promise<string> {
       return acc + chunkTLDR + "\n\n";
     }, "");
 
-    // 4. If the mergedTLDRs is greater than maxChunkSize, recursively chunk the text and generate TLDRs
-    if (mergedTLDRs.length > maxChunkSize) {
-      const nestedTLDRs = await generateTextTLDR(mergedTLDRs);
-      return nestedTLDRs;
-    }
-
-    // 5. Write a TLDR for all of the chunks
+    // 4. Write a TLDR for all of the chunks
     const response = await openai.createCompletion({
       model: "text-curie-001",
       prompt: generatePromptForTLDR(mergedTLDRs),
