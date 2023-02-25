@@ -12,13 +12,16 @@ const configuration = new Configuration({
 
 const openai = new OpenAIApi(configuration);
 
-export async function generateTextTLDR(text: string) {
-  const maxChunkSize = 5000;
+function generatePromptForTLDR(text: string) {
+  return `Write a short TLDR of the following text from a video:\n\n"""\n${text}\n"""\n\nTLDR:\n`;
+}
+
+export async function generateTextTLDR(text: string): Promise<string> {
+  const maxChunkSize = 6000;
   if (text.length <= maxChunkSize) {
-    const prompt = `Write a short TLDR of the following text from a video:\n\n"""\n${text}\n"""\n\nTLDR:\n`;
     const response = await openai.createCompletion({
       model: "text-curie-001",
-      prompt,
+      prompt: generatePromptForTLDR(text),
       temperature: 0.7,
       max_tokens: 256,
     });
@@ -31,10 +34,9 @@ export async function generateTextTLDR(text: string) {
     // 2. Write a short TLDR for each chunk with GPT-3
     const chunksTLDRs = await Promise.all(
       textChunks.map(async (textChunk) => {
-        const prompt = `Write a short TLDR of the following text from a video:\n\n"""\n${textChunk}\n"""\n\nTLDR:\n`;
         const response = await openai.createCompletion({
           model: "text-curie-001",
-          prompt,
+          prompt: generatePromptForTLDR(textChunk),
           temperature: 0.7,
           max_tokens: 256,
         });
@@ -48,11 +50,16 @@ export async function generateTextTLDR(text: string) {
       return acc + chunkTLDR + "\n\n";
     }, "");
 
-    // 4. Write a TLDR for all of the chunks
-    const prompt = `Write a short TLDR which sums up the following TLDRs:\n\n"""\n${mergedTLDRs}\n"""\n\nTLDR:\n`;
+    // 4. If the mergedTLDRs is greater than maxChunkSize, recursively chunk the text and generate TLDRs
+    if (mergedTLDRs.length > maxChunkSize) {
+      const nestedTLDRs = await generateTextTLDR(mergedTLDRs);
+      return nestedTLDRs;
+    }
+
+    // 5. Write a TLDR for all of the chunks
     const response = await openai.createCompletion({
       model: "text-curie-001",
-      prompt,
+      prompt: generatePromptForTLDR(mergedTLDRs),
       temperature: 0.7,
       max_tokens: 256,
     });
